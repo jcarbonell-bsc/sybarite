@@ -54,7 +54,27 @@ run_metabolic_tasks_inference <- function(sobj, tasks_file, info_file, verbose=T
 }
 
 
+run_FBA <- function(sobj, scfea_path){
 
+  msj("Preparing the data")
+  norm_counts <- Matrix::as.array(sobj@assays$RNA[,1:ncol(sobj)])
+  rownames(norm_counts) <- sapply(strsplit(rownames(norm_counts),"\\."),"[[",1)
+  # TO-FIX
+  norm_counts <- norm_counts[!duplicated(rownames(norm_counts)), ]
+
+  msj("Running FBA with ScFEA")
+  out <- scFEA_wrapper(norm_counts, scfea_path)
+
+  msj("Initializing seurat object from SBE")
+  flux_obj <- init_seurat_object_from_sbe(out$flux, sobj@meta.data, sobj=sobj)
+  balance_obj <- init_seurat_object_from_sbe(out$balance, sobj@meta.data, sobj=sobj)
+
+  return(list(
+    flux=flux_obj,
+    balance=balance_obj
+  ))
+
+}
 
 
 

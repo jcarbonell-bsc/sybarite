@@ -31,6 +31,9 @@ get_cannonical_tfs <- function(pathways_file, xref_file){
   load(pathways_file)
   load(xref_file)
 
+  grn <- dorothea::entire_database
+  all_tfs <- unique(grn$tf)
+
   last_nodes <- unlist(lapply(pathways$pathigraphs, function(x) lapply(x$effector.subgraphs, function(y) attributes(y)$last_node)), recursive = F)
   names(last_nodes) <- sapply(strsplit(names(last_nodes), "\\."), "[[", 2)
 

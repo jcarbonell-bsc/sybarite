@@ -88,6 +88,10 @@ translate_gene_ids <- function(norm_counts, xref){
   return(norm_counts2)
 }
 
+active <- function(sobj){
+  Matrix::as.array(sobj@assays[[sobj@active.assay]][,1:ncol(sobj)])
+}
+
 
 
 
