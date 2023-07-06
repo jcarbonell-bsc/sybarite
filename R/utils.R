@@ -1,8 +1,23 @@
 
-init_seurat_object_from_sbe <- function(mat, meta, sobj=NULL, verbose=F){
+init_seurat_object_from_sbe <- function(mat, meta, sobj=NULL, verbose=F, batch=NULL, label_cell_type=F, nfeatures=nrow(mat)){
+
+  print(dim(mat))
 
   tobj <- CreateSeuratObject(counts = mat, meta.data = meta, min.cells = 0, min.features = 0, project = "task")
-  tobj <- FindVariableFeatures(object = tobj, selection.method = "vst", nfeatures = nrow(mat), verbose=verbose)
+  if(!is.null(batch)){
+    tobj@meta.data$batch <- batch
+    print(dim(tobj))
+    ifnb.list <- SplitObject(tobj, split.by = "batch")
+    ifnb.list <- lapply(X = ifnb.list, FUN = function(x) {
+      x <- NormalizeData(x)
+      x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = nrow(mat))
+    })
+    features <- SelectIntegrationFeatures(object.list = ifnb.list, nfeatures = nrow(mat))
+    immune.anchors <- FindIntegrationAnchors(object.list = ifnb.list, anchor.features = features)
+    tobj <- IntegrateData(anchorset = immune.anchors, new.assay.name = "RNA")
+    print(dim(tobj))
+  }
+  tobj <- FindVariableFeatures(object = tobj, selection.method = "vst", nfeatures = nfeatures, verbose=verbose)
   tobj <- ScaleData(object = tobj)
   tobj <- RunPCA(object = tobj, features = VariableFeatures(object = tobj), verbose=verbose)
   # tobj <- RunTSNE(object = tobj, verbose=verbose)
@@ -10,6 +25,18 @@ init_seurat_object_from_sbe <- function(mat, meta, sobj=NULL, verbose=F){
   tobj@meta.data$seurat_clusters_rna <- format_cluster_names(tobj@meta.data$seurat_clusters, "rna_")
   tobj <- FindNeighbors(object = tobj, verbose=verbose)
   tobj <- FindClusters(object = tobj, verbose=verbose)
+
+  if(label_cell_type==T){
+    library(celldex)
+    # hpca.se <- HumanPrimaryCellAtlasData
+    library(SingleR)
+    # sboj hpca.se <- HumanPrimaryCellAtlasData
+    tobj_se <- as.SingleCellExperiment(tobj)
+    # ref <- SingleR::HumanPrimaryCellAtlasData()
+    ref <- celldex::HumanPrimaryCellAtlasData()
+    pred <- SingleR(test=tobj_se, ref=ref, labels=ref$label.main)
+    tobj[["cell_type"]] <- pred$labels
+  }
 
   if(!is.null(sobj)){
     # tobj[["pca_rna"]] <- hobj[["pca_rna"]] <- CreateDimReducObject(embeddings = Embeddings(sobj, "pca"), key = "PC_", assay = DefaultAssay(sobj))
@@ -93,6 +120,10 @@ active <- function(sobj){
 }
 
 
-
-
+load_me <- function(file) {
+  out <- new.env()
+  load(file,envir = out)
+  if(length(out)==1) return(as.list(out)[[1]])
+  else return(as.list(out))
+}
 

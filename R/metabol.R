@@ -63,7 +63,7 @@ run_FBA <- function(sobj, scfea_path){
   norm_counts <- norm_counts[!duplicated(rownames(norm_counts)), ]
 
   msj("Running FBA with ScFEA")
-  out <- scFEA_wrapper(norm_counts, scfea_path)
+  out <- scFEA_wrapper(norm_counts, scfea_path, remove_tmp = F)
 
   msj("Initializing seurat object from SBE")
   flux_obj <- init_seurat_object_from_sbe(out$flux, sobj@meta.data, sobj=sobj)
