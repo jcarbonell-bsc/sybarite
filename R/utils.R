@@ -119,6 +119,10 @@ active <- function(sobj){
   Matrix::as.array(sobj@assays[[sobj@active.assay]][,1:ncol(sobj)])
 }
 
+subset_cells <- function(sobj, group, var){
+  idx <- which(sobj@meta.data[,var]==group)
+  subset(sobj, cells=idx)
+}
 
 load_me <- function(file) {
   out <- new.env()

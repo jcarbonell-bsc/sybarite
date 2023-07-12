@@ -39,12 +39,17 @@ correlate_sbes <- function(sbe1, sbe2=NULL, cor_method="pearson", cor_thresh=0.5
     na_template[na_template==0] <- NA
     mc2 <- mc * na_template
     mc_pvalue2 <- mc_pvalue * na_template
-    mc_summ <- melt(mc2, na.rm = T)
-    mc_pvalue_summ <- melt(mc_pvalue2, na.rm = T)
+    mc_summ <- melt(mc2, na.rm = F)
+    mc_pvalue_summ <- melt(mc_pvalue2, na.rm = F)
   } else {
-    mc_summ <- melt(mc, na.rm = T)
-    mc_pvalue_summ <- melt(mc_pvalue, na.rm = T)
+    mc_summ <- melt(mc, na.rm = F)
+    mc_pvalue_summ <- melt(mc_pvalue, na.rm = F)
   }
+  mc_summ$value[is.na(mc_summ$value)] <- 0
+  mc_pvalue_summ$value[is.na(mc_pvalue_summ$value)] <- 1
+
+  print("aqui")
+  print(dim(mc_summ))
 
   # summary
   # mc_summ <- melt(mc)
@@ -109,15 +114,26 @@ correlate_sbes_by_cluster <- function(sbe1, sbe2=NULL, groups, cor_method="pears
 
 }
 
-plot_pair <- function(f1, f2, sbe1, sbe2, reduction="umap_rna"){
+plot_pair <- function(f1, f2, sbe1, sbe2=NULL, reduction="umap_rna", use_log=F, offset=1, group=NULL, var=NULL){
   require(gridExtra)
   require(ggplotify)
+
+  if(is.null(sbe2)) sbe2 <- sbe1
+
+  if(!is.null(group)){
+    sbe1 <- subset_cells(sbe1, group=group, var=var)
+    sbe2 <- subset_cells(sbe2, group=group, var=var)
+  }
 
   f1 <- as.character(f1)
   f2 <- as.character(f2)
   ff <- function() {
     v1 <- active(sbe1)[f1, ]
     v2 <- active(sbe2)[f2, ]
+    if(use_log==T){
+      v1 <- log(v1 + offset)
+      v2 <- log(v2 + offset)
+    }
     plot(v1, v2, xlab=f1, ylab=f2, pch=20, col="#0000FF77", cex=0.7)
     lines(lowess(v1, v2),col="black")
   }
@@ -132,21 +148,26 @@ plot_pair <- function(f1, f2, sbe1, sbe2, reduction="umap_rna"){
 }
 
 
-plot_random_sig_pair <- function(int, sbe1, sbe2){
+plot_random_sig_pair <- function(int, sbe1, sbe2, use_log=F){
   sel <- int$sig[sample(1:nrow(int$sig), 1),]
-  plot_pair(sel$sbe1, sel$sbe2, sbe1, sbe2)
+  plot_pair(sel$sbe1, sel$sbe2, sbe1, sbe2, use_log=use_log)
 }
 
-select_interactions <- function(sbe_cor, adj_pvalue=0.01, cor=0.5) {
+select_interactions <- function(sbe_cor, adj_pvalue=0.01, cor=0.5, factor=1, auto_norm_weight=T) {
   # sbe_cor$summ <- sbe_cor$summ[sbe_cor$summ$sbe1!=sbe_cor$summ$sbe2,]
-  out <- sbe_cor$summ[ sbe_cor$summ$adj.pvalue<adj_pvalue & abs(sbe_cor$summ$cor)>cor, ]
-  # cat("Selected", nrow(out),"interactions\n")
+  out <- sbe_cor$summ
+  out$weight <- abs(out$cor)
+  if(auto_norm_weight==T){
+    out$weight <- out$weight / quantile(out$weight, .9)
+  }
+  out$weight <- out$weight * factor
+  out <- out[ out$adj.pvalue<adj_pvalue & abs(out$cor)>cor, ]
   return(out)
 }
 
-create_multilayer <- function(ints, cors=rep(0.5, length(intra_ints)), layers, lcolors, paint=T){
+create_multilayer <- function(ints, cors=rep(0.5, length(intra_ints)), layers, lcolors, paint=T, adj_pvalue=0.01){
 
-  finals <- lapply(1:length(ints), function(i) select_interactions(ints[[i]], adj_pvalue=0.01, cor=cors[i]))
+  finals <- lapply(1:length(ints), function(i) select_interactions(ints[[i]], adj_pvalue=adj_pvalue, cor=cors[i]))
   names(finals) <- names(ints)
 
   all_final <- c()
@@ -173,9 +194,12 @@ create_multilayer <- function(ints, cors=rep(0.5, length(intra_ints)), layers, l
 
 }
 
-find_communities <- function(mln, method=cluster_fast_greedy, paint=T, lcolors=NULL, ...){
+find_communities <- function(mln, method=cluster_fast_greedy, paint=T, lcolors=NULL, min_size=2, ...){
 
   comm <- method(mln, ...)
+  comm <- filter_community_by_size(comm, min_size=min_size)
+  # mln <- induced_subgraph(mln, vids = match(comm$names, V(mln)$name))
+  # comm <- method(mln, ...)
 
   groups <- communities(comm)
   cat("Found", length(groups), "communities\n")
@@ -184,7 +208,7 @@ find_communities <- function(mln, method=cluster_fast_greedy, paint=T, lcolors=N
 
   if(paint==T){
     hist(sizes(comm), 50)
-    plot.igraph(mln, vertex.label=NA, mark.groups = comm)
+    plot.igraph(mln, vertex.label=NA, mark.groups = split(1:length(comm$membership), comm$membership))
     legend("bottomright", legend=names(lcolors), col=lcolors, pch=15, bty="n")
   }
 
@@ -205,6 +229,21 @@ find_communities <- function(mln, method=cluster_fast_greedy, paint=T, lcolors=N
   ))
 }
 
+filter_community_by_size <- function(co, min_size=2){
+
+  gs <- sizes(co)
+  sel_comms <-  as.numeric(names(gs)[gs>=min_size])
+  tokeep <- which(co$membership %in% sel_comms)
+
+  co2 <- co
+  co2$membership <- co$membership[tokeep]
+  # co2$memberships <- co$memberships[tokeep]
+  co2$names <- co$names[tokeep]
+  co2$vcount <- length(tokeep)
+
+  return(co2)
+
+}
 
 plot_elements <- function(el, objs, layers, reduction="umap_rna"){
   require(gridExtra)
@@ -216,7 +255,7 @@ plot_elements <- function(el, objs, layers, reduction="umap_rna"){
       item <- V(el)$name[i]
       type <- layers[match(item, layers[,1]), 2]
 
-      p[[i]] <- FeaturePlot(objs[[type]], item, reduction=reduction, min.cutoff = "q25", max.cutoff = "q75", )
+      p[[i]] <- FeaturePlot(objs[[type]], item, reduction=reduction, min.cutoff = "q25", max.cutoff = "q75")
 
   }
 
@@ -225,7 +264,28 @@ plot_elements <- function(el, objs, layers, reduction="umap_rna"){
 }
 
 
+query_cor_by_cluster <- function(sbe_cor, el1, el2){
+  all_summ <- do.call("rbind", lapply(sbe_cor, function(x) x$summ[ x$summ$sbe1==el1 & x$summ$sbe2==el2, ]))
+  return(all_summ)
+}
 
+summarize_cor_by_cluster <- function(cbc, cor_thresh=0.5, adj_pvalue_thresh=0.01){
+
+  all_cors <- do.call("cbind", lapply(cbc, function(x) x$summ$cor))
+  colnames(all_cors) <- paste0(colnames(all_cors), ".cor")
+
+  are_sig <- do.call("cbind", lapply(cbc, function(x) abs(x$summ$cor)>=cor_thresh & x$summ$adj.pvalue<=adj_pvalue_thresh))
+  colnames(are_sig) <- paste0(colnames(are_sig), ".is_sig")
+
+  scbc <- data.frame(
+    cbc$global$summ[, c("sbe1", "sbe2")],
+    sig = apply(are_sig, 1, any),
+    all_cors,
+    are_sig,
+    stringsAsFactors = F
+  )
+
+}
 
 
 
